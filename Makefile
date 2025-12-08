@@ -1,6 +1,6 @@
 CXX           = clang++
 OP            = -funsafe-math-optimizations  -O2 -flto -pipe -march=native -DDEBUG
-CXXFLAGS      = -std=c++2a -Wall -Wextra -ferror-limit=1 -ftemplate-backtrace-limit=0 $(OP)
+CXXFLAGS      = -std=c++17 -Wall -Wextra -ferror-limit=1 -ftemplate-backtrace-limit=0 $(OP)
 LFLAGS        = $(OP)
 
 
