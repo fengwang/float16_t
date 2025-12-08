@@ -1,5 +1,5 @@
 CXX           = clang++
-OP            = -funsafe-math-optimizations  -Ofast -flto -pipe -march=native -DDEBUG
+OP            = -funsafe-math-optimizations  -O2 -flto -pipe -march=native -DDEBUG
 CXXFLAGS      = -std=c++2a -Wall -Wextra -ferror-limit=1 -ftemplate-backtrace-limit=0 $(OP)
 LFLAGS        = $(OP)
 
@@ -20,4 +20,9 @@ all: test
 test: tests/test.cc
 	$(CXX) -c $(CXXFLAGS) -o $(OBJECTS_DIR)/test_test.o tests/test.cc
 	$(LINK) -o $(BIN_DIR)/test_test $(OBJECTS_DIR)/test_test.o $(LFLAGS)
+
+
+clean:
+	rm -rf $(OBJECTS_DIR)/*
+	rm -rf $(BIN_DIR)/*
 
