@@ -5,6 +5,7 @@
 #include <iostream>
 #include <bitset>
 #include <limits>
+#include <vector>
 
 void print( float x )
 {
@@ -273,4 +274,51 @@ TEST_CASE( "comparisons_follow_ieee", "[compare]" )
     CHECK_FALSE( another_one < nan );
     CHECK_FALSE( nan > another_one );
     CHECK_FALSE( another_one > nan );
+}
+
+TEST_CASE( "division_matches_float_rounding", "[div]" )
+{
+    using namespace numeric;
+
+    struct Pair { float a; float b; };
+    std::vector<Pair> cases = {
+        { 1.0f, 2.0f },
+        { -3.0f, 7.0f },
+        { 0.5f, -2.0f },
+        { 1.0e-3f, 3.0f },
+        { 6.09756e-05f, 2.0f },      // max subnormal / 2
+        { 6.10352e-05f, 3.0f },      // min normal / 3
+        { 123.0f, 1.5f },
+        { -50.0f, -0.25f },
+        { 65500.0f, 0.25f },         // near overflow
+        { 10.0f, 1.0e-4f },          // overflow to inf in half
+        { 0.0002f, 0.0001f },        // small / small -> normal
+        { -0.0002f, 0.0001f },
+    };
+
+    for ( auto const& c : cases )
+    {
+        float16_t ha{ c.a };
+        float16_t hb{ c.b };
+        float16_t hres = ha / hb;
+        // difference between half result and float result should be within 1 ulp of half
+        float float_res = c.a / c.b;
+        float half_res_float = float( hres );
+        float diff = std::abs( float_res - half_res_float );
+        float ulp = 0.0009765625f; // fp16 epsilon
+        auto href_bits = float16_t_private::float32_to_float16( float_res ).bits_;
+        float16_t href{ href_bits };
+
+        if ( std::isfinite( float_res ) && ( ( href_bits & 0x7c00 ) != 0x7c00 ) )
+        {
+            auto hres_bits = static_cast<std::uint16_t>( hres );
+            auto diff_bits = ( hres_bits > href_bits ) ? ( hres_bits - href_bits ) : ( href_bits - hres_bits );
+            REQUIRE( diff_bits <= 1 ); // allow 1 ulp difference
+            REQUIRE( diff <= ulp );
+        }
+        else
+        {
+            CHECK_FALSE( std::isfinite( half_res_float ) );
+        }
+    }
 }

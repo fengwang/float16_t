@@ -461,6 +461,147 @@ namespace half
         return ( std::uint16_t )( c_result );
     }
 
+    // Half-precision division using integer arithmetic and round-to-nearest-even.
+    constexpr inline std::uint16_t half_div( std::uint16_t x, std::uint16_t y ) noexcept
+    {
+        const std::uint32_t h_s_mask = 0x00008000;
+        const std::uint32_t h_e_mask = 0x00007c00;
+        const std::uint32_t h_m_mask = 0x000003ff;
+        const std::uint32_t h_m_hidden = 0x00000400;
+        const std::uint32_t h_nan = 0x00007e00;
+        const std::uint32_t h_inf = 0x00007c00;
+        const int h_bias = 15;
+
+        const std::uint32_t x_s = x & h_s_mask;
+        const std::uint32_t y_s = y & h_s_mask;
+        const std::uint32_t sign = x_s ^ y_s;
+
+        const std::uint32_t x_e = x & h_e_mask;
+        const std::uint32_t y_e = y & h_e_mask;
+        const std::uint32_t x_m = x & h_m_mask;
+        const std::uint32_t y_m = y & h_m_mask;
+
+        const bool x_is_nan = ( x_e == h_e_mask ) && ( x_m != 0 );
+        const bool y_is_nan = ( y_e == h_e_mask ) && ( y_m != 0 );
+        if ( x_is_nan || y_is_nan ) return static_cast<std::uint16_t>( h_nan );
+
+        const bool x_is_inf = ( x_e == h_e_mask ) && ( x_m == 0 );
+        const bool y_is_inf = ( y_e == h_e_mask ) && ( y_m == 0 );
+        if ( x_is_inf && y_is_inf ) return static_cast<std::uint16_t>( h_nan );
+        if ( x_is_inf ) return static_cast<std::uint16_t>( sign | h_inf );
+        if ( y_is_inf ) return static_cast<std::uint16_t>( sign ); // zero with sign
+
+        const bool x_is_zero = ( x_e == 0 ) && ( x_m == 0 );
+        const bool y_is_zero = ( y_e == 0 ) && ( y_m == 0 );
+        if ( x_is_zero && y_is_zero ) return static_cast<std::uint16_t>( h_nan );
+        if ( y_is_zero ) return static_cast<std::uint16_t>( sign | h_inf );
+        if ( x_is_zero ) return static_cast<std::uint16_t>( sign ); // signed zero
+
+        auto normalize = [&]( std::uint32_t bits, int& exp_unbiased, std::uint32_t& mant ) noexcept
+        {
+            std::uint32_t e = ( bits & h_e_mask ) >> 10;
+            mant = ( bits & h_m_mask );
+            if ( e == 0 )
+            {
+                // subnormal: normalize mantissa and adjust exponent
+                std::uint16_t nlz = half_private::_uint16_cntlz( static_cast<std::uint16_t>( mant ) );
+                std::uint32_t shift = ( nlz > 5 ) ? ( nlz - 5 ) : 0; // position hidden bit at bit10
+                mant <<= shift;
+                exp_unbiased = 1 - h_bias - static_cast<int>( shift );
+            }
+            else
+            {
+                mant |= h_m_hidden;
+                exp_unbiased = static_cast<int>( e ) - h_bias;
+            }
+        };
+
+        int x_exp = 0;
+        int y_exp = 0;
+        std::uint32_t x_mn = 0;
+        std::uint32_t y_mn = 0;
+        normalize( x, x_exp, x_mn );
+        normalize( y, y_exp, y_mn );
+
+        int c_exp = x_exp - y_exp; // unbiased exponent so far
+
+        // Compute significand division with guard/round/sticky bits.
+        const std::uint32_t numerator = x_mn << 13; // leave room for GRS
+        std::uint32_t q = numerator / y_mn;         // 14-bit quotient (expected range [0x2000, 0x3fff])
+        std::uint32_t r = numerator % y_mn;
+
+        // Normalize quotient to [1,2)
+        if ( q < 0x2000 )
+        {
+            q <<= 1;
+            r <<= 1;
+            c_exp -= 1;
+            if ( r >= y_mn )
+            {
+                r -= y_mn;
+                q += 1;
+            }
+        }
+        else if ( q >= 0x4000 )
+        {
+            r |= ( q & 1 );
+            q >>= 1;
+            c_exp += 1;
+        }
+
+        // Prepare for rounding (q has implicit 1 at bit13)
+        std::uint32_t mant = ( q >> 3 ); // remove GRS bits; 11-bit mantissa including hidden bit
+        std::uint32_t guard = ( q >> 2 ) & 1;
+        std::uint32_t round = ( q >> 1 ) & 1;
+        std::uint32_t sticky = ( q & 1 ) | ( r ? 1u : 0u );
+
+        if ( guard && ( round || sticky || ( mant & 1 ) ) )
+        {
+            mant += 1;
+            if ( mant == 0x800 )
+            {
+                mant >>= 1;
+                c_exp += 1;
+            }
+        }
+
+        // Handle exponent overflow/underflow and packing
+        if ( c_exp > 15 ) // overflow -> inf
+        {
+            return static_cast<std::uint16_t>( sign | h_inf );
+        }
+
+        if ( c_exp < -14 )
+        {
+            // Produce subnormal with correct rounding
+            int shift = -14 - c_exp;
+            if ( shift > 25 ) // too small -> zero
+            {
+                return static_cast<std::uint16_t>( sign );
+            }
+
+            // Rebuild full significand with GRS to round after shifting
+            std::uint32_t raw = ( mant << 3 ) | ( guard << 2 ) | ( round << 1 ) | sticky;
+            std::uint32_t sticky_shift = ( raw & ( ( 1u << shift ) - 1u ) ) ? 1u : 0u;
+            raw >>= shift;
+            std::uint32_t sub_guard = ( raw >> 2 ) & 1u;
+            std::uint32_t sub_round = ( raw >> 1 ) & 1u;
+            std::uint32_t sub_sticky = ( raw & 1u ) | sticky_shift;
+            std::uint32_t sub_mant = ( raw >> 3 ) & h_m_mask; // no hidden bit in subnormal
+
+            if ( sub_guard && ( sub_round || sub_sticky || ( sub_mant & 1u ) ) )
+            {
+                sub_mant += 1;
+            }
+
+            return static_cast<std::uint16_t>( sign | ( sub_mant & h_m_mask ) );
+        }
+
+        const std::uint32_t exp_field = static_cast<std::uint32_t>( c_exp + h_bias );
+        const std::uint32_t mant_field = mant & h_m_mask; // drop hidden bit
+        return static_cast<std::uint16_t>( sign | ( exp_field << 10 ) | mant_field );
+    }
+
     constexpr inline std::uint16_t half_neg( std::uint16_t h ) noexcept
     {
         return h ^ 0x8000;
@@ -611,7 +752,7 @@ namespace numeric
 
         constexpr inline float16_t& operator /= ( float16_t v ) noexcept
         {
-            *this = float(*this) / float(v);
+            data_.bits_ = half::half_div( data_.bits_, v.data_.bits_ );
             return *this;
         }
 
@@ -638,7 +779,8 @@ namespace numeric
 
         constexpr inline float16_t& operator /= ( float v ) noexcept
         {
-            *this = float(*this) / v;
+            auto f16 =  float16_t_private::float32_to_float16( v );
+            data_.bits_ = half::half_div( data_.bits_, f16.bits_ );
             return *this;
         }
 
@@ -724,7 +866,9 @@ namespace numeric
 
     constexpr inline float16_t operator / ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return float(lhs) / float(rhs);
+        float16_t ans{ lhs };
+        ans /= rhs;
+        return ans;
     }
 
     constexpr inline bool operator < ( float16_t lhs, float16_t rhs ) noexcept
