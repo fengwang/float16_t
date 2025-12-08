@@ -257,12 +257,20 @@ TEST_CASE( "comparisons_follow_ieee", "[compare]" )
     CHECK_FALSE( std::signbit( float( pos_zero ) ) );
     CHECK( std::signbit( float( neg_zero ) ) );
 
-    float16_t nan = fp16_nan;
+    // cancellation should produce +0 with correct classification
     float16_t one = fp16_one;
+    float16_t minus_one = fp16_one_negative;
+    auto sum = one + minus_one;
+    CHECK( sum == fp16_zero );
+    CHECK_FALSE( std::signbit( float( sum ) ) );
+    CHECK( is_finite( sum ) );
+
+    float16_t nan = fp16_nan;
+    float16_t another_one = fp16_one;
     CHECK_FALSE( nan == nan );
     CHECK( nan != nan );
-    CHECK_FALSE( nan < one );
-    CHECK_FALSE( one < nan );
-    CHECK_FALSE( nan > one );
-    CHECK_FALSE( one > nan );
+    CHECK_FALSE( nan < another_one );
+    CHECK_FALSE( another_one < nan );
+    CHECK_FALSE( nan > another_one );
+    CHECK_FALSE( another_one > nan );
 }
