@@ -10,6 +10,7 @@
 #include <iostream>
 #include <cmath>
 #include <bitset>
+#include <sstream>
 #include <type_traits>
 
 #ifdef _MSC_VER
@@ -218,7 +219,7 @@ namespace half
         const std::uint32_t h_m = ( h & h_m_mask );
         const std::uint32_t h_s = ( h & h_s_mask );
         const std::uint32_t h_e_f_bias = ( h_e + h_f_bias_offset );
-        const std::uint32_t h_m_nlz = half_private::_uint32_cntlz( h_m );
+        const std::uint32_t h_m_nlz = h_m ? half_private::_uint32_cntlz( h_m ) : 32;
         const std::uint32_t f_s = ( h_s << h_f_s_pos_offset );
         const std::uint32_t f_e = ( h_e_f_bias << h_f_e_pos_offset );
         const std::uint32_t f_m = ( h_m << h_f_e_pos_offset );
@@ -698,11 +699,11 @@ namespace numeric
     constexpr inline float16_t         fp16_epsilon{ static_cast<std::uint16_t>(0x1400) };
 
     constexpr inline float16_t         fp16_one{ static_cast<std::uint16_t>(0x3c00) };
-    constexpr inline float16_t         fp16_one_negative{ static_cast<std::uint16_t>(0x4000) };
+    constexpr inline float16_t         fp16_one_negative{ static_cast<std::uint16_t>(0xbc00) };
     constexpr inline float16_t         fp16_two{ static_cast<std::uint16_t>(0x4000) };
     constexpr inline float16_t         fp16_two_negative{ static_cast<std::uint16_t>(0xc000) };
     constexpr inline float16_t         fp16_half{ static_cast<std::uint16_t>(0x3800) };
-    constexpr inline float16_t         fp16_half_negative{ static_cast<std::uint16_t>(0x3b00) };
+    constexpr inline float16_t         fp16_half_negative{ static_cast<std::uint16_t>(0xb800) };
     constexpr inline float16_t         fp16_zero{ static_cast<std::uint16_t>(0x0) };
     constexpr inline float16_t         fp16_zero_negative{ static_cast<std::uint16_t>(0x8000) };
     constexpr inline float16_t         fp16_e{ static_cast<std::uint16_t>(0x4170) };
@@ -736,48 +737,32 @@ namespace numeric
 
     constexpr inline bool operator < ( float16_t lhs, float16_t rhs ) noexcept
     {
-        auto const& l_ieee = lhs.data_.ieee_;
-        auto const& r_ieee = rhs.data_.ieee_;
-
-        if ( l_ieee.sign_ == 1 )
-        {
-            if ( r_ieee.sign_ == 0 ) return true;
-            if ( l_ieee.exp_ > r_ieee.exp_ ) return true;
-            if ( l_ieee.exp_ < r_ieee.exp_ ) return false;
-            if ( l_ieee.frac_ > r_ieee.frac_ ) return true;
-            return false;
-        }
-
-        if ( r_ieee.sign_ == 1 ) return false;
-        if ( l_ieee.exp_ > r_ieee.exp_ ) return false;
-        if ( l_ieee.exp_ < r_ieee.exp_ ) return true;
-        if ( l_ieee.frac_ >= r_ieee.frac_ ) return false;
-        return true;
+        return std::isless( float(lhs), float(rhs) );
     }
 
     constexpr inline bool operator == ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return lhs.data_.bits_ == rhs.data_.bits_;
+        return float(lhs) == float(rhs);
     }
 
     constexpr inline bool operator <= ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return (lhs < rhs) || (lhs == rhs);
+        return std::islessequal( float(lhs), float(rhs) );
     }
 
     constexpr inline bool operator > ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return !( lhs <= rhs );
+        return std::isgreater( float(lhs), float(rhs) );
     }
 
     constexpr inline bool operator >= ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return !( lhs < rhs );
+        return std::isgreaterequal( float(lhs), float(rhs) );
     }
 
     constexpr inline bool operator != ( float16_t lhs, float16_t rhs ) noexcept
     {
-        return !( lhs == rhs );
+        return float(lhs) != float(rhs);
     }
 
     template<typename CharT, class Traits>
@@ -851,7 +836,7 @@ namespace numeric
     //remquo ??
     constexpr inline auto fma = float16_t_private::make_trinary_function( []( float f1, float f2, float f3 ) { return std::fma( f1, f2, f3 ); } );
     constexpr inline auto fmax = float16_t_private::make_binary_function( []( float f1, float f2 ) { return std::fmax( f1, f2 ); } );
-    constexpr inline auto fmin = float16_t_private::make_binary_function( []( float f1, float f2 ) { return std::fmax( f1, f2 ); } );
+    constexpr inline auto fmin = float16_t_private::make_binary_function( []( float f1, float f2 ) { return std::fmin( f1, f2 ); } );
     constexpr inline auto fdim = float16_t_private::make_binary_function( []( float f1, float f2 ) { return std::fdim( f1, f2 ); } );
     constexpr inline auto lerp = float16_t_private::make_trinary_function( []( float f1, float f2, float f3 ) { return f1 + f3 * (f2 - f1); } );
     constexpr inline auto exp = float16_t_private::make_unary_function( [](float f){ return std::exp(f); } );
@@ -911,23 +896,28 @@ namespace numeric
 
     constexpr inline bool is_nan( float16_t f16 ) noexcept
     {
-        return (std::uint16_t(f16) & 0x7fff) > 0x7f80;
+        const auto bits = static_cast<std::uint16_t>( f16 );
+        const auto exponent = bits & 0x7c00;
+        const auto mantissa = bits & 0x03ff;
+        return ( exponent == 0x7c00 ) && ( mantissa != 0 );
     }
 
     constexpr inline bool is_inf( float16_t f16 ) noexcept
     {
-        return (std::uint16_t(f16) & 0x7fff) == 0x7f80;
+        const auto bits = static_cast<std::uint16_t>( f16 );
+        return ( ( bits & 0x7c00 ) == 0x7c00 ) && ( ( bits & 0x03ff ) == 0 );
     }
 
     constexpr inline bool is_finite( float16_t f16 ) noexcept
     {
-        return (std::uint16_t(f16) & 0x7f80) != 0x7f80;
+        const auto bits = static_cast<std::uint16_t>( f16 );
+        return ( bits & 0x7c00 ) != 0x7c00;
     }
 
     constexpr inline bool is_normal( float16_t f16 ) noexcept
     {
-        auto const exponent = std::uint16_t(f16) & 0x7f80;
-        return (exponent != 0x7f80) && (exponent != 0);
+        const auto exponent = static_cast<std::uint16_t>( f16 ) & 0x7c00;
+        return ( exponent != 0x7c00 ) && ( exponent != 0x0000 );
     }
 
     constexpr inline bool is_positive( float16_t f16 ) noexcept

@@ -209,5 +209,60 @@ TEST_CASE( "constant2", "[constant2]" )
     }
 }
 
+TEST_CASE( "fmin_correctness", "[fmin]" )
+{
+    using numeric::float16_t;
+    using numeric::fmin;
 
+    CHECK( fmin( float16_t{1.0f}, float16_t{2.0f} ) == float16_t{1.0f} );
+    CHECK( fmin( float16_t{-3.0f}, float16_t{-2.0f} ) == float16_t{-3.0f} );
+}
 
+TEST_CASE( "constant_encodings", "[constants]" )
+{
+    using namespace numeric;
+    CHECK( static_cast<std::uint16_t>( fp16_one_negative ) == 0xbc00 );
+    CHECK( static_cast<std::uint16_t>( fp16_half_negative ) == 0xb800 );
+    CHECK( float( fp16_one_negative ) == Catch::Detail::Approx( -1.0f ) );
+    CHECK( float( fp16_half_negative ) == Catch::Detail::Approx( -0.5f ) );
+}
+
+TEST_CASE( "classification", "[classify]" )
+{
+    using namespace numeric;
+
+    CHECK( is_nan( fp16_nan ) );
+    CHECK_FALSE( is_finite( fp16_nan ) );
+    CHECK_FALSE( is_inf( fp16_nan ) );
+
+    CHECK( is_inf( fp16_infinity ) );
+    CHECK( is_inf( fp16_infinity_negative ) );
+    CHECK_FALSE( is_finite( fp16_infinity ) );
+
+    CHECK( is_finite( fp16_zero ) );
+    CHECK( is_finite( fp16_zero_negative ) );
+    CHECK_FALSE( is_normal( fp16_min_positive_subnormal ) );
+    CHECK( is_normal( fp16_min_positive ) );
+}
+
+TEST_CASE( "comparisons_follow_ieee", "[compare]" )
+{
+    using namespace numeric;
+
+    float16_t pos_zero = fp16_zero;
+    float16_t neg_zero = fp16_zero_negative;
+    CHECK( pos_zero == neg_zero );
+    CHECK_FALSE( pos_zero < neg_zero );
+    CHECK_FALSE( neg_zero < pos_zero );
+    CHECK_FALSE( std::signbit( float( pos_zero ) ) );
+    CHECK( std::signbit( float( neg_zero ) ) );
+
+    float16_t nan = fp16_nan;
+    float16_t one = fp16_one;
+    CHECK_FALSE( nan == nan );
+    CHECK( nan != nan );
+    CHECK_FALSE( nan < one );
+    CHECK_FALSE( one < nan );
+    CHECK_FALSE( nan > one );
+    CHECK_FALSE( one > nan );
+}
