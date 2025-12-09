@@ -352,113 +352,131 @@ namespace half
         return ( c_result );
     }
 
+    // Half-precision multiplication using integer arithmetic and round-to-nearest-even.
     constexpr inline std::uint16_t half_mul( std::uint16_t x, std::uint16_t y ) noexcept
     {
-        const std::uint32_t one = ( 0x00000001 );
-        const std::uint32_t h_s_mask = ( 0x00008000 );
-        const std::uint32_t h_e_mask = ( 0x00007c00 );
-        const std::uint32_t h_m_mask = ( 0x000003ff );
-        const std::uint32_t h_m_hidden = ( 0x00000400 );
-        const std::uint32_t h_e_pos = ( 0x0000000a );
-        const std::uint32_t h_e_bias = ( 0x0000000f );
-        const std::uint32_t h_m_bit_count = ( 0x0000000a );
-        const std::uint32_t h_m_bit_half_count = ( 0x00000005 );
-        const std::uint32_t h_nan_min = ( 0x00007c01 );
-        const std::uint32_t h_e_mask_minus_one = ( 0x00007bff );
-        const std::uint32_t h_snan = ( 0x0000fe00 );
-        const std::uint32_t m_round_overflow_bit = ( 0x00000020 );
-        const std::uint32_t m_hidden_bit = ( 0x00100000 );
-        const std::uint32_t a_s = ( x & h_s_mask );
-        const std::uint32_t b_s = ( y & h_s_mask );
-        const std::uint32_t c_s = ( a_s ^ b_s );
-        const std::uint32_t x_e = ( x & h_e_mask );
-        const std::uint32_t x_e_eqz_msb = ( x_e - 1 );
-        const std::uint32_t a = half_private::_uint32_sels( x_e_eqz_msb, y, x );
-        const std::uint32_t b = half_private::_uint32_sels( x_e_eqz_msb, x, y );
-        const std::uint32_t a_e = ( a & h_e_mask );
-        const std::uint32_t b_e = ( b & h_e_mask );
-        const std::uint32_t a_m = ( a & h_m_mask );
-        const std::uint32_t b_m = ( b & h_m_mask );
-        const std::uint32_t a_e_amount = ( a_e >> h_e_pos );
-        const std::uint32_t b_e_amount = ( b_e >> h_e_pos );
-        const std::uint32_t a_m_with_hidden = ( a_m | h_m_hidden );
-        const std::uint32_t b_m_with_hidden = ( b_m | h_m_hidden );
-        const std::uint32_t c_m_normal = ( a_m_with_hidden * b_m_with_hidden );
-        const std::uint32_t c_m_denorm_biased = ( a_m_with_hidden * b_m );
-        const std::uint32_t c_e_denorm_unbias_e = ( h_e_bias - a_e_amount );
-        const std::uint32_t c_m_denorm_round_amount = ( c_m_denorm_biased & h_m_mask );
-        const std::uint32_t c_m_denorm_rounded = ( c_m_denorm_biased + c_m_denorm_round_amount );
-        const std::uint32_t c_m_denorm_inplace = ( c_m_denorm_rounded >> h_m_bit_count );
-        const std::uint32_t c_m_denorm_unbiased = ( c_m_denorm_inplace >> c_e_denorm_unbias_e );
-        const std::uint32_t c_m_denorm = ( c_m_denorm_unbiased & h_m_mask );
-        const std::uint32_t c_e_amount_biased = ( a_e_amount + b_e_amount );
-        const std::uint32_t c_e_amount_unbiased = ( c_e_amount_biased - h_e_bias );
-        const std::uint32_t is_c_e_unbiased_underflow = ( ( ( std::int32_t )c_e_amount_unbiased ) >> 31 );
-        const std::uint32_t c_e_underflow_half_sa = ( -c_e_amount_unbiased );
-        const std::uint32_t c_e_underflow_sa = ( c_e_underflow_half_sa << one );
-        const std::uint32_t c_m_underflow = ( c_m_normal >> c_e_underflow_sa );
-        const std::uint32_t c_e_underflow_added = ( c_e_amount_unbiased & ~is_c_e_unbiased_underflow );
-        const std::uint32_t c_m_underflow_added = half_private::_uint32_selb( is_c_e_unbiased_underflow, c_m_underflow, c_m_normal );
-        const std::uint32_t is_mul_overflow_test = ( c_e_underflow_added & m_round_overflow_bit );
-        const std::uint32_t is_mul_overflow_msb = ( -is_mul_overflow_test );
-        const std::uint32_t c_e_norm_radix_corrected = ( c_e_underflow_added + 1 );
-        const std::uint32_t c_m_norm_radix_corrected = ( c_m_underflow_added >> one );
-        const std::uint32_t c_m_norm_hidden_bit = ( c_m_norm_radix_corrected & m_hidden_bit );
-        const std::uint32_t is_c_m_norm_no_hidden_msb = ( c_m_norm_hidden_bit - 1 );
-        const std::uint32_t c_m_norm_lo = ( c_m_norm_radix_corrected >> h_m_bit_half_count );
-        const std::uint32_t c_m_norm_lo_nlz = half_private::_uint16_cntlz( static_cast<uint16_t>(c_m_norm_lo) );
-        const std::uint32_t is_c_m_hidden_nunderflow_msb = ( c_m_norm_lo_nlz - c_e_norm_radix_corrected );
-        const std::uint32_t is_c_m_hidden_underflow_msb = ( ~is_c_m_hidden_nunderflow_msb );
-        const std::uint32_t is_c_m_hidden_underflow = ( ( ( std::int32_t )is_c_m_hidden_underflow_msb ) >> 31 );
-        const std::uint32_t c_m_hidden_underflow_normalized_sa = ( c_m_norm_lo_nlz >> one );
-        const std::uint32_t c_m_hidden_underflow_normalized = ( c_m_norm_radix_corrected << c_m_hidden_underflow_normalized_sa );
-        const std::uint32_t c_m_hidden_normalized = ( c_m_norm_radix_corrected << c_m_norm_lo_nlz );
-        const std::uint32_t c_e_hidden_normalized = ( c_e_norm_radix_corrected - c_m_norm_lo_nlz );
-        const std::uint32_t c_e_hidden = ( c_e_hidden_normalized & ~is_c_m_hidden_underflow );
-        const std::uint32_t c_m_hidden = half_private::_uint32_sels( is_c_m_hidden_underflow_msb, c_m_hidden_underflow_normalized, c_m_hidden_normalized );
-        const std::uint32_t c_m_normalized = half_private::_uint32_sels( is_c_m_norm_no_hidden_msb, c_m_hidden, c_m_norm_radix_corrected );
-        const std::uint32_t c_e_normalized = half_private::_uint32_sels( is_c_m_norm_no_hidden_msb, c_e_hidden, c_e_norm_radix_corrected );
-        const std::uint32_t c_m_norm_round_amount = ( c_m_normalized & h_m_mask );
-        const std::uint32_t c_m_norm_rounded = ( c_m_normalized + c_m_norm_round_amount );
-        const std::uint32_t is_round_overflow_test = ( c_e_normalized & m_round_overflow_bit );
-        const std::uint32_t is_round_overflow_msb = ( -is_round_overflow_test );
-        const std::uint32_t c_m_norm_inplace = ( c_m_norm_rounded >> h_m_bit_count );
-        const std::uint32_t c_m = ( c_m_norm_inplace & h_m_mask );
-        const std::uint32_t c_e_norm_inplace = ( c_e_normalized << h_e_pos );
-        const std::uint32_t c_e = ( c_e_norm_inplace & h_e_mask );
-        const std::uint32_t c_em_nan = ( h_e_mask | a_m );
-        const std::uint32_t c_nan = ( a_s | c_em_nan );
-        const std::uint32_t c_denorm = ( c_s | c_m_denorm );
-        const std::uint32_t c_inf = ( c_s | h_e_mask );
-        const std::uint32_t c_em_norm = ( c_e | c_m );
-        const std::uint32_t is_a_e_flagged_msb = ( h_e_mask_minus_one - a_e );
-        const std::uint32_t is_b_e_flagged_msb = ( h_e_mask_minus_one - b_e );
-        const std::uint32_t is_a_e_eqz_msb = ( a_e - 1 );
-        const std::uint32_t is_a_m_eqz_msb = ( a_m - 1 );
-        const std::uint32_t is_b_e_eqz_msb = ( b_e - 1 );
-        const std::uint32_t is_b_m_eqz_msb = ( b_m - 1 );
-        const std::uint32_t is_b_eqz_msb = ( is_b_e_eqz_msb & is_b_m_eqz_msb );
-        const std::uint32_t is_a_eqz_msb = ( is_a_e_eqz_msb & is_a_m_eqz_msb );
-        const std::uint32_t is_c_nan_via_a_msb = ( is_a_e_flagged_msb & ~is_b_e_flagged_msb );
-        const std::uint32_t is_c_nan_via_b_msb = ( is_b_e_flagged_msb & ~is_b_m_eqz_msb );
-        const std::uint32_t is_c_nan_msb = ( is_c_nan_via_a_msb | is_c_nan_via_b_msb );
-        const std::uint32_t is_c_denorm_msb = ( is_b_e_eqz_msb & ~is_a_e_flagged_msb );
-        const std::uint32_t is_a_inf_msb = ( is_a_e_flagged_msb & is_a_m_eqz_msb );
-        const std::uint32_t is_c_snan_msb = ( is_a_inf_msb & is_b_eqz_msb );
-        const std::uint32_t is_c_nan_min_via_a_msb = ( is_a_e_flagged_msb & is_b_eqz_msb );
-        const std::uint32_t is_c_nan_min_via_b_msb = ( is_b_e_flagged_msb & is_a_eqz_msb );
-        const std::uint32_t is_c_nan_min_msb = ( is_c_nan_min_via_a_msb | is_c_nan_min_via_b_msb );
-        const std::uint32_t is_c_inf_msb = ( is_a_e_flagged_msb | is_b_e_flagged_msb );
-        const std::uint32_t is_overflow_msb = ( is_round_overflow_msb | is_mul_overflow_msb );
-        const std::uint32_t c_em_overflow_result = half_private::_uint32_sels( is_overflow_msb, h_e_mask, c_em_norm );
-        const std::uint32_t c_common_result = ( c_s | c_em_overflow_result );
-        const std::uint32_t c_zero_result = half_private::_uint32_sels( is_b_eqz_msb, c_s, c_common_result );
-        const std::uint32_t c_nan_result = half_private::_uint32_sels( is_c_nan_msb, c_nan, c_zero_result );
-        const std::uint32_t c_nan_min_result = half_private::_uint32_sels( is_c_nan_min_msb, h_nan_min, c_nan_result );
-        const std::uint32_t c_inf_result = half_private::_uint32_sels( is_c_inf_msb, c_inf, c_nan_min_result );
-        const std::uint32_t c_denorm_result = half_private::_uint32_sels( is_c_denorm_msb, c_denorm, c_inf_result );
-        const std::uint32_t c_result = half_private::_uint32_sels( is_c_snan_msb, h_snan, c_denorm_result );
-        return ( std::uint16_t )( c_result );
+        const std::uint32_t h_s_mask = 0x00008000;
+        const std::uint32_t h_e_mask = 0x00007c00;
+        const std::uint32_t h_m_mask = 0x000003ff;
+        const std::uint32_t h_m_hidden = 0x00000400;
+        const std::uint32_t h_nan = 0x00007e00;
+        const std::uint32_t h_inf = 0x00007c00;
+        const int h_bias = 15;
+
+        const std::uint32_t x_s = x & h_s_mask;
+        const std::uint32_t y_s = y & h_s_mask;
+        const std::uint32_t sign = x_s ^ y_s;
+
+        const std::uint32_t x_e = x & h_e_mask;
+        const std::uint32_t y_e = y & h_e_mask;
+        const std::uint32_t x_m = x & h_m_mask;
+        const std::uint32_t y_m = y & h_m_mask;
+
+        const bool x_is_nan = ( x_e == h_e_mask ) && ( x_m != 0 );
+        const bool y_is_nan = ( y_e == h_e_mask ) && ( y_m != 0 );
+        if ( x_is_nan || y_is_nan ) return static_cast<std::uint16_t>( h_nan );
+
+        const bool x_is_inf = ( x_e == h_e_mask ) && ( x_m == 0 );
+        const bool y_is_inf = ( y_e == h_e_mask ) && ( y_m == 0 );
+        const bool x_is_zero = ( x_e == 0 ) && ( x_m == 0 );
+        const bool y_is_zero = ( y_e == 0 ) && ( y_m == 0 );
+
+        if ( ( x_is_inf && y_is_zero ) || ( y_is_inf && x_is_zero ) )
+        {
+            return static_cast<std::uint16_t>( h_nan );
+        }
+        if ( x_is_inf || y_is_inf )
+        {
+            return static_cast<std::uint16_t>( sign | h_inf );
+        }
+        if ( x_is_zero || y_is_zero )
+        {
+            return static_cast<std::uint16_t>( sign ); // signed zero
+        }
+
+        auto normalize = [&]( std::uint32_t bits, int& exp_unbiased, std::uint32_t& mant ) noexcept
+        {
+            std::uint32_t e = ( bits & h_e_mask ) >> 10;
+            mant = ( bits & h_m_mask );
+            if ( e == 0 )
+            {
+                std::uint16_t nlz = half_private::_uint16_cntlz( static_cast<std::uint16_t>( mant ) );
+                std::uint32_t shift = ( nlz > 5 ) ? ( nlz - 5 ) : 0; // place hidden bit at bit10
+                mant <<= shift;
+                exp_unbiased = 1 - h_bias - static_cast<int>( shift );
+            }
+            else
+            {
+                mant |= h_m_hidden;
+                exp_unbiased = static_cast<int>( e ) - h_bias;
+            }
+        };
+
+        int x_exp = 0;
+        int y_exp = 0;
+        std::uint32_t x_mn = 0;
+        std::uint32_t y_mn = 0;
+        normalize( x, x_exp, x_mn );
+        normalize( y, y_exp, y_mn );
+
+        int c_exp = x_exp + y_exp;
+
+        std::uint32_t product = x_mn * y_mn; // up to 22 bits
+
+        // Normalize product to [1,2)
+        if ( product >= ( 1u << 21 ) )
+        {
+            product >>= 1;
+            c_exp += 1;
+        }
+
+        std::uint32_t mant = ( product >> 10 ); // 11-bit mantissa with hidden bit
+        std::uint32_t guard = ( product >> 9 ) & 1u;
+        std::uint32_t round = ( product >> 8 ) & 1u;
+        std::uint32_t sticky = ( product & 0xffu ) ? 1u : 0u;
+
+        if ( guard && ( round || sticky || ( mant & 1u ) ) )
+        {
+            mant += 1;
+            if ( mant == 0x800 )
+            {
+                mant >>= 1;
+                c_exp += 1;
+            }
+        }
+
+        if ( c_exp > 15 ) // overflow -> inf
+        {
+            return static_cast<std::uint16_t>( sign | h_inf );
+        }
+
+        if ( c_exp < -14 )
+        {
+            int shift = -14 - c_exp;
+            if ( shift > 25 )
+            {
+                return static_cast<std::uint16_t>( sign );
+            }
+
+            std::uint32_t raw = ( mant << 3 ) | ( guard << 2 ) | ( round << 1 ) | sticky;
+            std::uint32_t sticky_shift = ( raw & ( ( 1u << shift ) - 1u ) ) ? 1u : 0u;
+            raw >>= shift;
+            std::uint32_t sub_guard = ( raw >> 2 ) & 1u;
+            std::uint32_t sub_round = ( raw >> 1 ) & 1u;
+            std::uint32_t sub_sticky = ( raw & 1u ) | sticky_shift;
+            std::uint32_t sub_mant = ( raw >> 3 ) & h_m_mask;
+
+            if ( sub_guard && ( sub_round || sub_sticky || ( sub_mant & 1u ) ) )
+            {
+                sub_mant += 1;
+            }
+
+            return static_cast<std::uint16_t>( sign | ( sub_mant & h_m_mask ) );
+        }
+
+        const std::uint32_t exp_field = static_cast<std::uint32_t>( c_exp + h_bias );
+        const std::uint32_t mant_field = mant & h_m_mask; // drop hidden bit
+        return static_cast<std::uint16_t>( sign | ( exp_field << 10 ) | mant_field );
     }
 
     // Half-precision division using integer arithmetic and round-to-nearest-even.

@@ -373,3 +373,51 @@ TEST_CASE( "addition_matches_float_rounding", "[add]" )
         }
     }
 }
+
+TEST_CASE( "multiplication_matches_float_rounding", "[mul]" )
+{
+    using namespace numeric;
+
+    struct Pair { float a; float b; };
+    std::vector<Pair> cases = {
+        { 0.5f, 0.5f },
+        { -1.0f, 1.5f },
+        { 123.0f, -0.25f },
+        { 6.09756e-05f, 2.0f },      // subnormal * normal
+        { 6.10352e-05f, 16.0f },     // min normal scaled
+        { 500.0f, 120.0f },          // overflow to inf in half
+        { -65500.0f, 0.5f },         // near overflow negative
+        { 0.0002f, 0.0001f },        // small product -> subnormal/normal boundary
+        { -0.0002f, -0.0001f },
+        { 1.0e-3f, 1.0e-3f },
+    };
+
+    for ( auto const& c : cases )
+    {
+        float16_t ha{ c.a };
+        float16_t hb{ c.b };
+        float16_t hres = ha * hb;
+        float float_res = c.a * c.b;
+        auto href_bits = float16_t_private::float32_to_float16( float_res ).bits_;
+        float16_t href{ href_bits };
+
+        float half_res_float = float( hres );
+        float diff = std::abs( float_res - half_res_float );
+
+        if ( std::isfinite( float_res ) && ( ( href_bits & 0x7c00 ) != 0x7c00 ) )
+        {
+            auto hres_bits = static_cast<std::uint16_t>( hres );
+            auto diff_bits = ( hres_bits > href_bits ) ? ( hres_bits - href_bits ) : ( href_bits - hres_bits );
+            REQUIRE( diff_bits <= 1 ); // allow 1 ulp difference
+            auto exp = static_cast<int>( ( hres_bits & 0x7c00u ) >> 10 );
+            float ulp = ( exp == 0 )
+                ? std::ldexp( 1.0f, -24 )
+                : std::ldexp( 1.0f, exp - 25 );
+            REQUIRE( diff <= ulp );
+        }
+        else
+        {
+            CHECK_FALSE( std::isfinite( half_res_float ) );
+        }
+    }
+}
