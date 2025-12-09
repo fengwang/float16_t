@@ -304,8 +304,6 @@ TEST_CASE( "division_matches_float_rounding", "[div]" )
         // difference between half result and float result should be within 1 ulp of half
         float float_res = c.a / c.b;
         float half_res_float = float( hres );
-        float diff = std::abs( float_res - half_res_float );
-        float ulp = 0.0009765625f; // fp16 epsilon
         auto href_bits = float16_t_private::float32_to_float16( float_res ).bits_;
         float16_t href{ href_bits };
 
@@ -314,6 +312,59 @@ TEST_CASE( "division_matches_float_rounding", "[div]" )
             auto hres_bits = static_cast<std::uint16_t>( hres );
             auto diff_bits = ( hres_bits > href_bits ) ? ( hres_bits - href_bits ) : ( href_bits - hres_bits );
             REQUIRE( diff_bits <= 1 ); // allow 1 ulp difference
+            float diff = std::abs( float_res - half_res_float );
+            auto exp = static_cast<int>( ( hres_bits & 0x7c00u ) >> 10 );
+            float ulp = ( exp == 0 )
+                ? std::ldexp( 1.0f, -24 )
+                : std::ldexp( 1.0f, exp - 25 );
+            REQUIRE( diff <= ulp );
+        }
+        else
+        {
+            CHECK_FALSE( std::isfinite( half_res_float ) );
+        }
+    }
+}
+
+TEST_CASE( "addition_matches_float_rounding", "[add]" )
+{
+    using namespace numeric;
+
+    struct Pair { float a; float b; };
+    std::vector<Pair> cases = {
+        { 0.5f, 0.5f },
+        { -1.0f, 1.0f },
+        { 100.0f, 0.25f },
+        { -10.0f, -3.0f },
+        { 1.0e-3f, 6.09756e-05f },     // involve subnormal rounding
+        { 6.10352e-05f, -6.10352e-05f }, // cancellation to zero
+        { 50000.0f, 12000.0f },         // overflow to inf in half
+        { 65500.0f, -65500.0f },        // cancellation near extremes
+        { 0.0002f, 0.0001f },           // small normal sum
+        { -0.0002f, -0.0001f },
+    };
+
+    for ( auto const& c : cases )
+    {
+        float16_t ha{ c.a };
+        float16_t hb{ c.b };
+        float16_t hres = ha + hb;
+        float float_res = c.a + c.b;
+        auto href_bits = float16_t_private::float32_to_float16( float_res ).bits_;
+        float16_t href{ href_bits };
+
+        float half_res_float = float( hres );
+        float diff = std::abs( float_res - half_res_float );
+
+        if ( std::isfinite( float_res ) && ( ( href_bits & 0x7c00 ) != 0x7c00 ) )
+        {
+            auto hres_bits = static_cast<std::uint16_t>( hres );
+            auto diff_bits = ( hres_bits > href_bits ) ? ( hres_bits - href_bits ) : ( href_bits - hres_bits );
+            REQUIRE( diff_bits <= 1 ); // allow 1 ulp difference
+            auto exp = static_cast<int>( ( hres_bits & 0x7c00u ) >> 10 );
+            float ulp = ( exp == 0 )
+                ? std::ldexp( 1.0f, -24 )
+                : std::ldexp( 1.0f, exp - 25 );
             REQUIRE( diff <= ulp );
         }
         else
