@@ -1003,10 +1003,6 @@ namespace std
         static constexpr std::float_round_style round_style = round_to_nearest;
     };
 
-    template<> inline constexpr bool is_floating_point_v<numeric::float16_t> = true;
-    template<> inline constexpr bool is_arithmetic_v<numeric::float16_t> = true;
-    template<> inline constexpr bool is_signed_v<numeric::float16_t> = true;
-
 }
 
 #endif
